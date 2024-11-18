@@ -31,13 +31,18 @@ def math_problem_ocr(image)->Question:
     question = Question(**question_dict)
     return question
 
-def auto_tagging(question: Question)->List:
+def auto_tagging(question: Question)->Dict:
     """
     문제 자동 태깅
     Args:
         question(Question): 태깅 대상인 문제
     """
-    return [choice.content for choice in question.choices]
+
+    result = {
+        "concept_ids": [choice.content for choice in question.choices],
+        "question_ids": [4, 7, 8, 9, 10]
+    }
+    return result
 
 def question_analysis(image):
     question_dict = math_problem_ocr(image)
