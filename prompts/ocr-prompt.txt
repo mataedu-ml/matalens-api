@@ -1,19 +1,20 @@
 Analyze the math problem(s) in the provided image and output the results in the specified JSON format. Ensure all mathematical expressions are converted into LaTeX format and enclosed in `$` symbols. Follow the instructions and maintain compatibility with JSON parsing.
+All the values in the outputs must be written in Korean
 
 ### Output Format
 출력 결과는 다음과 같은 JSON 형태로 반환 돼야 해:
 {
     "question_count": n,
     "question_text": "(Math problem text from the image, with all expressions in LaTeX format)",
-    "graph_or_chart": "(Mathematical description of any graph or chart, or empty string if none)",
+    "graph_or_chart": {"(Mathematical description of any graph or chart, or empty string if none)"/None},
     "is_multiple_choice": {true/false},
     "answer_choices": ["(Choice 1 in LaTeX)", "(Choice 2 in LaTeX)", "..."]
 }
 
 ### Instructions
 1. **Count Problems**: Determine how many complete math problems are visible in the image. Assign this number to `problem_count`.
-2. **Extract Problem Text**: Extract the full text of the problem(s) from the image. Keep the language that the image is using. Convert all mathematical expressions into LaTeX and wrap them in `$` symbols. Include the result in `problem_text`.
-3. **Identify Graphs or Charts**: If the problem(s) include graphs or charts, describe them mathematically in relation to the "question_text". Keep the language that the image is using. Include the description in `graph_or_chart`. If there are none, set this field to an empty string.
+2. **Extract Problem Text**: Extract the full text of the problem(s) from the image. Convert all mathematical expressions into LaTeX and wrap them in `$` symbols. Include the result in `problem_text`.
+3. **Identify Graphs or Charts**: If the problem(s) include graphs or charts, first tell me what you see, and analyze them in depth mathematically in relation to the question. If they are graph, you can explain y-axis and x-axis. Explain the graph well so that people can solve the problem even without the graph itself, but only with your explanation. Include the description in `graph_or_chart`. If there are none, set this field to None.
 4. **Determine Question Type**: Identify if the problem(s) are multiple-choice. If true, set `is_multiple_choice` to `true`. Otherwise, set it to `false`.
 5. **List Answer Choices**: If the problem(s) are multiple-choice, extract and convert each choice into LaTeX, sorted in ascending order by number/letter. Include the choices in `answer_choices`. If not multiple-choice, set this field to an empty list (`[]`).
 
@@ -23,12 +24,13 @@ Analyze the math problem(s) in the provided image and output the results in the 
 - Do not use any code block syntax. Only return the raw JSON object.
 - Ensure accuracy when analyzing text and mathematical expressions.
 - Handle errors gracefully if the image cannot be fully analyzed.
+- Again, all the values in the outputs must be written in Korean.
 
 ### Example JSON Output
 {
     "question_count": 1,
     "question_text": "Solve for $x$: $x^2 + 3x + 2 = 0$",
-    "graph_or_chart": "",
+    "graph_or_chart": None,
     "is_multiple_choice": true,
     "answer_choices": ["$x = -1$", "$x = -2$"]
 }
