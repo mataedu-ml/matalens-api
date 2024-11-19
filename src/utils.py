@@ -1,3 +1,4 @@
+import re
 import json
 import base64
 from typing import Dict, List
@@ -62,11 +63,15 @@ def math_problem_ocr(base64_image, logger)->Dict:
         raise ConnectionError("Problem with OCR using GPT")
 
     try:
-        question_dict = json.loads(response.choices[0].message.content)
+        preprocessed = re.sub(r"(?<!\\)\\(?!\\)", r"\\\\", response.choices[0].message.content)
+        question_dict = json.loads(preprocessed)
         logger.info("Question parsed correctly")
-    except TypeError as e:
+        logger.info(f"Original: \n {response.choices[0].message.content}")
+        logger.info(f"Preprocessed: \n {preprocessed}")
+    except Exception as e:
         logger.error("Responded result cannot be parsed")
         logger.error(f"Detail: {e}")
+        logger.error(f"Detail: {response.choices[0].message.content}")
         # logging.info("Trying again...")
         raise TypeError("Responded result cannot be parsed into a dictionary format")
 
