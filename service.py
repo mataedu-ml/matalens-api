@@ -1,16 +1,17 @@
 import io
+import logging
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from src.utils import question_analysis
 
-from pydantic import BaseModel
+from template.request_format import RequestItem
 
-class Item(BaseModel):
-    image_path: str
+load_dotenv()
+app = FastAPI(title="matalens-api")
 
-
-app = FastAPI()
+logger = logging.getLogger('uvicorn.error')
 
 @app.post("/predict")
-async def predict(item: Item):
-    return question_analysis(item.image_path)
+async def predict(item: RequestItem):
+    return question_analysis(item.image_path, logger)
 
