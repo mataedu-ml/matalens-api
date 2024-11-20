@@ -2,6 +2,7 @@ import re
 import json
 import base64
 import boto3
+from time import time
 from typing import Dict, List
 from openai import OpenAI
 from logging import Logger
@@ -123,7 +124,11 @@ def auto_tagging(question: List[Question], logger: Logger)->Dict:
     return result
 
 def question_analysis(image_paths, logger):
+    start = time()
     question_list = image_process(image_paths, logger)
+    duration = time() - start
+    logger.info(f"Question text extraction took {duration} seconds")
+
     tagging_list = auto_tagging(question_list, logger)
     return tagging_list
 
