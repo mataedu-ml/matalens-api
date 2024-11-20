@@ -34,10 +34,15 @@ def math_problem_ocr(base64_image, logger)->Dict:
         base64_image(string): base64로 변환된 OCR 대상인 문제 이미지
         logger (Logger): FastAPI에 로깅
     """
+
+    # memo: OpenAI 클라이언트 생성
     client = OpenAI()
+
+    # memo: API에 적용 할 프롬프트 호출
     with open("prompts/ocr-prompt.txt", 'r') as prompt_file:
         prompt = prompt_file.read()
 
+    # memo: API에 이미지 분석 요청 전송
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -62,10 +67,12 @@ def math_problem_ocr(base64_image, logger)->Dict:
         )
         logger.info("API responded successfully")
     except ConnectionError as e:
+        # memo: API 통신 실패시 오류 메세지 반환
         logger.error("Problem with OCR using GPT")
         logger.error(f"Detail: {e}")
         raise ConnectionError("Problem with OCR using GPT")
 
+    # memo:
     try:
         preprocessed = re.sub(r"(?<!\\)\\(?!\\)", r"\\\\", response.choices[0].message.content)
         question_dict = json.loads(preprocessed)
@@ -83,15 +90,23 @@ def math_problem_ocr(base64_image, logger)->Dict:
 
 def image_process(image_paths: List[str], logger: Logger) -> List[Question]:
     question_list = []
+    logger.info(f"===== Question Analysis Start =====")
     for img_path in image_paths:
-        # memo: 이미지를 불러오고 base64로 변환
-        image_base64 = load_image_base64(img_path, logger)
-        # memo: 이미지에서 텍스트 및 내용 추출
-        question_dict = math_problem_ocr(image_base64, logger)
-        # memo: 이미지 경로 정보 추가
-        question_dict["img_path"] = img_path
-        # memo: Question 객체 생성
-        question_list.append(Question(**question_dict))
+        try:
+            # memo: 이미지를 불러오고 base64로 변환
+            image_base64 = load_image_base64(img_path, logger)
+            # memo: 이미지에서 텍스트 및 내용 추출
+            question_dict = math_problem_ocr(image_base64, logger)
+            # memo: 이미지 경로 정보 추가
+            question_dict["img_path"] = img_path
+            # memo: Question 객체 생성
+            question_list.append(Question(**question_dict))
+
+            logger.info(f"Question {img_path} analysis is done!")
+            logger.info("="*100)
+        except Exception as e:
+            continue
+
     return question_list
 
 def auto_tagging(question: List[Question], logger: Logger)->Dict:
