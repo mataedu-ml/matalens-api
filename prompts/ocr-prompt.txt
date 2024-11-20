@@ -33,6 +33,7 @@ All the values in the outputs must be written in Korean
 - Ensure accuracy when analyzing text and mathematical expressions.
 - Handle errors gracefully if the image cannot be fully analyzed.
 - Again, all the values in the outputs must be written in Korean.
+- And do not write any escape sequences.
 
 ### Example JSON Output
 {
