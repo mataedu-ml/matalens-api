@@ -90,7 +90,7 @@ def math_problem_ocr(base64_image, logger)->Dict:
 
 def image_process(image_paths: List[str], logger: Logger) -> List[Question]:
     question_list = []
-    logger.info(f"===== Question Analysis Start","="*50)
+    logger.info(f"===== Question Analysis Start "+"="*50)
     for img_path in image_paths:
         try:
             # memo: 이미지를 불러오고 base64로 변환
