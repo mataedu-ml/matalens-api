@@ -78,11 +78,10 @@ def math_problem_ocr(base64_image, logger)->Dict:
         question_dict = json.loads(preprocessed)
         logger.info("Question parsed with no error")
         # logger.info(f"Original: \n {response.choices[0].message.content}")
-        # logger.info(f"Preprocessed: \n {preprocessed}")
+        logger.info(f"Result: \n {preprocessed}")
     except Exception as e:
         logger.error("Responded result cannot be parsed")
         logger.error(f"Detail: {e}")
-        logger.error(f"Detail: {response.choices[0].message.content}")
         # logging.info("Trying again...")
         raise TypeError("Responded result cannot be parsed into a dictionary format")
 
