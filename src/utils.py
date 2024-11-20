@@ -105,6 +105,7 @@ def image_process(image_paths: List[str], logger: Logger) -> List[Question]:
             logger.info("="*100)
         except Exception as e:
             continue
+    logger.info(f"Total Questions: {len(question_list)}")
 
     return question_list
 
