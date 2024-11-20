@@ -6,9 +6,17 @@ All the values in the outputs must be written in Korean
 {
     "question_count": n,
     "question_text": "(Math problem text from the image, with all expressions in LaTeX format)",
-    "graph_or_chart": {"(Mathematical description of any graph or chart, or empty string if none)"/None},
+    "graph_or_chart": "(Mathematical description of any graph or chart)"/None,
     "is_multiple_choice": {true/false},
     "answer_choices": ["(Choice 1 in LaTeX)", "(Choice 2 in LaTeX)", "..."]
+}
+그리고 각 key의 value들의 data type은 다음과 같아:
+{
+    "question_count": int,
+    "question_text": str,
+    "graph_or_chart": str,
+    "is_multiple_choice": bool,
+    "answer_choices": List[str]
 }
 
 ### Instructions
