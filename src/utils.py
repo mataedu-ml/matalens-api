@@ -1,6 +1,7 @@
 import re
 import json
 import base64
+import boto3
 from typing import Dict, List
 from openai import OpenAI
 from logging import Logger
@@ -14,14 +15,17 @@ def load_image_base64(image_path, logger)->str:
         logger(Logger): FastAPI에 로깅
     """
     try:
-        with open(image_path, "rb") as image_file:
-            image = image_file.read()
-        logger.info("Image file successfully loaded")
+        s3 = boto3.client('s3')
+        bucket_name = 'matalens-test-bucket'
+        response = s3.get_object(Bucket=bucket_name, Key=image_path)
+        image_data = response['Body'].read()
+
+        logger.info(f"Image at {image_path} is successfully loaded")
     except Exception as e:
         logger.error("Image file not found")
         logger.error(f"Detail: {e}")
         raise FileNotFoundError("Question image file is missing.")
-    return base64.b64encode(image).decode('utf-8')
+    return base64.b64encode(image_data).decode('utf-8')
 
 def math_problem_ocr(base64_image, logger)->Dict:
     """
