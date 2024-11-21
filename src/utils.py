@@ -2,7 +2,6 @@ import re
 import os
 import json
 import base64
-from dotenv import load_dotenv
 from typing import Dict, List
 from logging import Logger
 from template.question_format import Question
@@ -17,7 +16,6 @@ from langchain_chroma import Chroma
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_PROJECT"] = "Mata-Lens"
-api_key = os.environ["OPENAI_API_KEY"]
 
 def load_image_base64(image_path, logger)->str:
     """
