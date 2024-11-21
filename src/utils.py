@@ -13,17 +13,11 @@ from langchain_experimental.open_clip import OpenCLIPEmbeddings
 from langchain.schema.messages import SystemMessage, HumanMessage
 from langchain_chroma import Chroma
 
-
-# 환경변수 로드
-load_dotenv()
-
 # LangSmith 설정
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
 os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_PROJECT"] = "Mata-Lens"
 api_key = os.environ["OPENAI_API_KEY"]
-
-
 
 def load_image_base64(image_path, logger)->str:
     """
