@@ -19,7 +19,6 @@ langsmith>=0.1.144
 chromadb>=0.5.20
 
 # PyTorch and OpenCLIP
-torch>=2.0.0
 open-clip-torch==2.18.0
 
 # Additional validation library
