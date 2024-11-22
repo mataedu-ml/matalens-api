@@ -157,6 +157,8 @@ def query_text(query_text, n_results=3, logger: Logger = None):
 
 def query_image(graph_or_chart, n_results=3, logger: Logger = None):
     try:
+        if logger:
+            logger.info("이미지 임베딩 초기화 시작")
         # OpenAI embeddings 초기화
         embeddings = OpenCLIPEmbeddings()
         if logger:
@@ -335,8 +337,8 @@ def auto_tagging(questions: List[Question], logger: Logger)->Dict:
         
         # question_ids 업데이트 - logger 전달
         question_result["question_ids"].extend(query_text(question.question_text, logger=logger))
-        if question.graph_or_chart:  # None이 아닐 때만 실행
-            question_result["question_ids"].extend(query_image(question.graph_or_chart, logger=logger))
+        # if question.graph_or_chart:  # None이 아닐 때만 실행
+        #     question_result["question_ids"].extend(query_image(question.graph_or_chart, logger=logger))
             
         # concept_ids 업데이트 - logger 전달
         tagging = concept_explanation_response(question.question_text, logger=logger)
