@@ -84,17 +84,18 @@ def math_problem_ocr(base64_image, logger)->Dict:
         logger.error(f"Detail: {e}")
         raise ConnectionError("Problem with OCR using GPT")
 
-    # memo:
     try:
-        preprocessed = re.sub(r"(?<!\\)\\(?!\\)", r"\\\\", response.choices[0].message.content)
+        content = response.choices[0].message.content
+        if content is None:
+            raise ValueError("API response content is None")
+            
+        preprocessed = re.sub(r"(?<!\\)\\(?!\\)", r"\\\\", content)
         question_dict = json.loads(preprocessed)
         logger.info("Question parsed with no error")
-        # logger.info(f"Original: \n {response.choices[0].message.content}")
         logger.info(f"Result: \n {preprocessed}")
     except Exception as e:
         logger.error("Responded result cannot be parsed")
         logger.error(f"Detail: {e}")
-        # logging.info("Trying again...")
         raise TypeError("Responded result cannot be parsed into a dictionary format")
 
     return question_dict
@@ -104,76 +105,85 @@ def image_process(image_paths: List[str], logger: Logger) -> List[Question]:
     logger.info(f"===== Question Analysis Start "+"="*50)
     for img_path in image_paths:
         try:
-            # memo: 이미지를 불러오고 base64로 변환
+            # 이미지를 불러오고 base64로 변환
             image_base64 = load_image_base64(img_path, logger)
-            # memo: 이미지에서 텍스트 및 내용 추출
+            # 이미지에서 텍스트 및 내용 추출
             question_dict = math_problem_ocr(image_base64, logger)
-            # memo: 이미지 경로 정보 추가
+            # 이미지 경로 정보 추가
             question_dict["img_path"] = img_path
-            # memo: Question 객체 생성
+            # Question 객체 생성
             question_list.append(Question(**question_dict))
 
             logger.info(f"Question {img_path} analysis is done!")
             logger.info("="*100)
         except Exception as e:
+            logger.error(f"Failed to process image {img_path}: {str(e)}")
             continue
     logger.info(f"Total Questions: {len(question_list)}")
 
     return question_list
 
 # question_text, 문제 텍스트 쿼리
-def query_text(query_text, n_results=3):
-    
-    # OpenAI embeddings 초기화
-    embeddings = OpenAIEmbeddings()
-    
-    # ChromaDB에 연결
-    vectordb = Chroma(
-        persist_directory="./chroma_db",
-        collection_name="text_problems",
-        embedding_function=embeddings
-    )
-    
-    # 유사도 검색 실행
-    results = vectordb.similarity_search(
-        query_text,
-        k=n_results
-    )
-    
-    # Document 객체들의 id만 추출하여 리스트로 변환
-    doc_ids = [doc.metadata['id'] for doc in results]
-    
-    # 중복 제거
-    result = list(set(doc_ids))
-    
-    return result
+def query_text(query_text, n_results=3, logger: Logger = None):
+    try:
+        # OpenAI embeddings 초기화
+        embeddings = OpenAIEmbeddings()
+        if logger:
+            logger.info("텍스트 임베딩 초기화 완료")
+        
+        # ChromaDB에 연결
+        vectordb = Chroma(
+            persist_directory="./chroma_db",
+            collection_name="text_problems",
+            embedding_function=embeddings
+        )
+        if logger:
+            logger.info("ChromaDB 연결 완료")
+        
+        # 유사도 검색 실행
+        results = vectordb.similarity_search(query_text, k=n_results)
+        if logger:
+            logger.info(f"텍스트 유사도 검색 완료: {len(results)}개 결과 찾음")
+        
+        # Document 객체들의 id만 추출하여 리스트로 변환
+        doc_ids = [doc.metadata['id'] for doc in results]
+        result = list(set(doc_ids))
+        
+        return result
+    except Exception as e:
+        if logger:
+            logger.error(f"텍스트 쿼리 중 오류 발생: {str(e)}")
+        raise
 
-# graph_or_chart, 이미지 해석 텍스트 쿼리
-def query_image(graph_or_chart, n_results=3):
-    
-    # OpenAI embeddings 초기화
-    embeddings = OpenCLIPEmbeddings()
+def query_image(graph_or_chart, n_results=3, logger: Logger = None):
+    try:
+        # OpenAI embeddings 초기화
+        embeddings = OpenCLIPEmbeddings()
+        if logger:
+            logger.info("이미지 임베딩 초기화 완료")
 
-    # ChromaDB에 연결
-    vectordb = Chroma(
-        persist_directory="./chroma_db",
-        collection_name="text_to_image",
-        embedding_function=embeddings        
-    )
-    
-    # 유사도 검색 실행
-    results = vectordb.similarity_search(
-        graph_or_chart,
-        k=n_results
-    )
-    
-    # Document 객체들의 id만 추출하여 리스트로 변환
-    doc_ids = [doc.metadata['id'].split('_')[1].split('.')[0] for doc in results]
-
-    # 중복 제거
-    result = list(set(doc_ids))
-    
-    return result
+        # ChromaDB에 연결
+        vectordb = Chroma(
+            persist_directory="./chroma_db",
+            collection_name="text_to_image",
+            embedding_function=embeddings        
+        )
+        if logger:
+            logger.info("ChromaDB 연결 완료")
+        
+        # 유사도 검색 실행
+        results = vectordb.similarity_search(graph_or_chart, k=n_results)
+        if logger:
+            logger.info(f"이미지 유사도 검색 완료: {len(results)}개 결과 찾음")
+        
+        doc_ids = [doc.metadata['id'].split('_')[1].split('.')[0] for doc in results]
+        result = list(set(doc_ids))
+        
+        return result
+    except Exception as e:
+        if logger:
+            logger.error(f"이미지 쿼리 중 오류 발생: {str(e)}")
+        raise
 
 # format_docs 함수 추가
 def format_docs(docs):
@@ -227,11 +237,14 @@ def extract_tags(tagging):
     return sorted(list(set(tags)))
 
 
-def concept_explanation_response(message):
+def concept_explanation_response(message, logger: Logger = None):
     try:
-        llm = ChatOpenAI(model="gpt-4o",
-                        top_p=1.0,
-                        temperature=0)
+        if logger:
+            logger.info("개념 설명 응답 시작")
+            
+        llm = ChatOpenAI(model="gpt-4o", top_p=1.0, temperature=0)
+        if logger:
+            logger.info("ChatOpenAI 모델 초기화 완료")
         
         with open("prompts/concept_explanation.txt", 'r') as prompt_file:
             keyword_prompt = prompt_file.read()
@@ -251,32 +264,44 @@ def concept_explanation_response(message):
         
         # 키워드 추출
         keywords = llm.invoke(keyword_messages).content
+        if logger:
+            logger.info(f"키워드 추출 완료: {keywords}")
         
         # 문제 자체로 검색
         problem_docs = vectordb.similarity_search(message, k=3)
+        if logger:
+            logger.info(f"문제 관련 문서 검색 완료: {len(problem_docs)}개")
         all_relevant_docs = problem_docs[1:]
         first_relevant_docs = [problem_docs[0]]
         
         # 키워드 추출 후 개별 검색
-        keywords_list = keywords.split(',')
-        
-        # 각 키워드별로 개별 검색 수행
-        for keyword in keywords_list:
-            docs = vectordb.similarity_search(keyword.strip(), k=3)
-            all_relevant_docs.extend(docs[1:])
-            first_relevant_docs.extend([docs[0]])
+        if isinstance(keywords, str):
+            keywords_list = keywords.split(',')
             
-        # 모든 문서 합치기
-        all_docs = first_relevant_docs + all_relevant_docs
-        
-        # 중복 제거
-        unique_docs = list({doc.page_content: doc for doc in all_docs}.values())
-        # 상위 5개로 제한
-        context = format_docs(unique_docs)
-        
-        return context
+            # 각 키워드별로 개별 검색 수행
+            for keyword in keywords_list:
+                docs = vectordb.similarity_search(keyword.strip(), k=3)
+                all_relevant_docs.extend(docs[1:])
+                first_relevant_docs.extend([docs[0]])
+                
+            # 모든 문서 합치기
+            all_docs = first_relevant_docs + all_relevant_docs
+            
+            # 중복 제거
+            unique_docs = list({doc.page_content: doc for doc in all_docs}.values())
+            # 상위 5개로 제한
+            context = format_docs(unique_docs)
+            
+            if logger:
+                logger.info(f"총 {len(unique_docs)}개의 관련 문서 찾음")
+            
+            return context
+        else:
+            raise ValueError("Keywords extraction failed")
             
     except Exception as e:
+        if logger:
+            logger.error(f"개념 설명 응답 중 오류 발생: {str(e)}")
         if "API" in str(e):
             return "API 연결에 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
         elif "embedding" in str(e).lower():
@@ -289,6 +314,7 @@ def auto_tagging(questions: List[Question], logger: Logger)->Dict:
     문제 자동 태깅
     Args:
         question(Question): 태깅 대상인 문제
+        logger(Logger): 로깅을 위한 Logger 객체
 
     Input data:
         question_text: 문제 텍스트
@@ -307,13 +333,13 @@ def auto_tagging(questions: List[Question], logger: Logger)->Dict:
             "question_ids": []
         }
         
-        # question_ids 업데이트
-        question_result["question_ids"].extend(query_text(question.question_text))
+        # question_ids 업데이트 - logger 전달
+        question_result["question_ids"].extend(query_text(question.question_text, logger=logger))
         if question.graph_or_chart:  # None이 아닐 때만 실행
-            question_result["question_ids"].extend(query_image(question.graph_or_chart))
+            question_result["question_ids"].extend(query_image(question.graph_or_chart, logger=logger))
             
-        # concept_ids 업데이트
-        tagging = concept_explanation_response(question.question_text)
+        # concept_ids 업데이트 - logger 전달
+        tagging = concept_explanation_response(question.question_text, logger=logger)
         question_result["concept_ids"].extend(extract_tags(tagging))
         
         # 중복 제거
