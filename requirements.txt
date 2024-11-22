@@ -1,6 +1,29 @@
-pydantic>=2.8.2
+# Core backend and environment
 fastapi>=0.112.0
-openai>=1.54.3
+uvicorn>=0.32.0
 python-dotenv>=1.0.1
 fastapi[standard]
 boto3>=1.35.65
+
+# OpenAI API and LangChain
+openai>=1.54.3
+langchain>=0.0.305
+langchain-core>=0.3.19
+langchain-community>=0.3.7
+langchain-openai>=0.2.9
+langchain-experimental>=0.0.53
+langchain-chroma==0.1.4
+langsmith>=0.1.144
+
+# VectorStore (ChromaDB)
+chromadb>=0.5.20
+
+# PyTorch and OpenCLIP
+torch>=2.0.0
+open-clip-torch==2.18.0
+
+# Additional validation library
+pydantic>=2.8.2
+pillow>=10.0.0
+numpy>=1.24.0
+matplotlib>=3.7.3
