@@ -1,7 +1,9 @@
 import io
+import os
+import requests
 import logging
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from src.utils import question_analysis
 
 from template.request_format import RequestItem
