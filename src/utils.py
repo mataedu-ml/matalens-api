@@ -341,7 +341,8 @@ def auto_tagging(questions, logger: Logger) -> Dict:
 
     for i, question in enumerate(questions):
         question_result = {
-            "id": i + 1,
+            # "id": i + 1,
+            "img_path": question.image_path,
             "concept_ids": [],
             "question_ids": []
         }
