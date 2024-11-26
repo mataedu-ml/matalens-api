@@ -15,5 +15,5 @@ logger = logging.getLogger('uvicorn.error')
 
 @app.post("/predict")
 async def predict(item: RequestItem):
-    return question_analysis(item.image_path, logger)
+    return await question_analysis(item.image_path, logger)
 

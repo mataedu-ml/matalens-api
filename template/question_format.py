@@ -11,7 +11,7 @@ class Question(BaseModel):
     - is_multiple_choice: 문제가 객관식인지, 혹은 주관식인지
     - answer_choices: 객관식 문제라면, 그 답 선택지
     """
-    img_path: str
+    image_path: str
     question_count: int
     question_text: str
     is_multiple_choice: bool
