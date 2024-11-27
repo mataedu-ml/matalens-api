@@ -9,7 +9,7 @@ from time import time
 from typing import Dict, List
 from logging import Logger
 from template.question_format import Question
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI, AsyncOpenAI, OpenAIError
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
 from langchain_experimental.open_clip import OpenCLIPEmbeddings
@@ -186,39 +186,6 @@ async def query_text(questions: List[Question], vectordb, n_results, logger):
 
     except Exception as e:
         logger.error(f"유사도 검색 중 오류 발생: {str(e)}")
-        raise
-
-
-def query_image(graph_or_chart, n_results=3, logger: Logger = None):
-    try:
-        if logger:
-            logger.info("이미지 임베딩 초기화 시작")
-        # OpenAI embeddings 초기화
-        embeddings = OpenCLIPEmbeddings()
-        if logger:
-            logger.info("이미지 임베딩 초기화 완료")
-
-        # ChromaDB에 연결
-        vectordb = Chroma(
-            persist_directory="./chroma_db",
-            collection_name="text_to_image",
-            embedding_function=embeddings
-        )
-        if logger:
-            logger.info("ChromaDB 연결 완료")
-
-        # 유사도 검색 실행
-        results = vectordb.similarity_search(graph_or_chart, k=n_results)
-        if logger:
-            logger.info(f"이미지 유사도 검색 완료: {len(results)}개 결과 찾음")
-
-        doc_ids = [doc.metadata['id'].split('_')[1].split('.')[0] for doc in results]
-        result = list(set(doc_ids))
-
-        return result
-    except Exception as e:
-        if logger:
-            logger.error(f"이미지 쿼리 중 오류 발생: {str(e)}")
         raise
 
 
