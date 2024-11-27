@@ -22,12 +22,14 @@ os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
 os.environ["LANGCHAIN_PROJECT"] = "Mata-Lens"
 
 
-def load_image_base64(image_path, logger) -> str:
+def load_image_base64_S3(image_path, logger) -> str:
     """
-    사진 로딩
+    S3와 통신해서 사진을 받아와서 base64로 변환해서 반환하는 메서드
     Args:
-        image_path(string): 사진이 저장되어 있는 Path
+        image_path(string): 사진이 저장되어 있는 S3 Path
         logger(Logger): FastAPI에 로깅
+    Returns:
+        base64로 변환된 이미지 String
     """
     try:
         s3 = boto3.client('s3')
@@ -45,10 +47,12 @@ def load_image_base64(image_path, logger) -> str:
 
 async def load_image_base64_local(image_path, logger) -> str:
     """
-    사진 로딩
+    로컬 경로 속 사진을 받아와서 base64로 변환해서 반환하는 메서드
     Args:
-        image_path(string): 사진이 저장되어 있는 Path
+        image_path(string): 사진이 저장되어 있는 Local Path
         logger(Logger): FastAPI에 로깅
+    Returns:
+        base64로 변환된 이미지 String
     """
 
     try:
@@ -63,13 +67,15 @@ async def load_image_base64_local(image_path, logger) -> str:
     return base64.b64encode(image_data).decode('utf-8')
 
 
-async def math_problem_ocr(image_path, prompt, logger) -> Question:
+async def ocr_single_image(image_path, prompt, logger) -> Question:
     """
-    문제 OCR
+    문제 속 텍스트 OCR
     Args:
         image_path(string): base64로 변환된 OCR 대상인 문제 이미지
-        prompt(str):
+        prompt(str): 이미지 속 텍스트를 추출하기 위해 API에 등록 할 프롬프트
         logger (Logger): FastAPI에 로깅
+    Returns:
+        문제를 파싱한 Question 객체
     """
 
     base64_image = await load_image_base64_local(image_path, logger)
@@ -81,7 +87,7 @@ async def math_problem_ocr(image_path, prompt, logger) -> Question:
     }
     content = [{"type": "text", "text": prompt}, image_request]
 
-    # OpenAI API 호출
+    # memo: OpenAI API 호출
     client = AsyncOpenAI()
 
     # memo: API에 이미지 분석 요청 전송
@@ -116,9 +122,18 @@ async def math_problem_ocr(image_path, prompt, logger) -> Question:
     return Question(**question_dict)
 
 
-async def process_images_in_parallel(image_paths: List[str], prompt, logger: Logger):
+async def ocr_multiple_images(image_paths: List[str], prompt: str, logger: Logger):
+    """
+    이미지 경로 리스트를 입력 받고, 모든 이미지에 대해서 OCR 작업을 해주는 메서드
+    비동기로 이루어지기 때문에, 모든 이미지 프로세싱이 병렬로 이루어 진다.
+    Args:
+        image_paths: 각 이미지들이 저장되어 있는 경로들을 담고 있는 리스트
+        prompt: 이미지에서 어떤 정보를 추출 할 지에 대한 설명이 적혀있는 프롬프트
+        logger: FastAPI 로그
+    Returns:
+    """
     try:
-        tasks = [math_problem_ocr(image_path, prompt, logger) for image_path in image_paths]
+        tasks = [ocr_single_image(image_path, prompt, logger) for image_path in image_paths]
         questions = await asyncio.gather(*tasks, return_exceptions=True)
         logger.info("All Questions parsed successfully")
     except Exception as e:
@@ -322,7 +337,7 @@ def concept_explanation_response(message, logger: Logger = None):
             return f"예상치 못한 오류가 발생했습니다: {str(e)}"
 
 
-def auto_tagging(questions, logger: Logger) -> Dict:
+def auto_tagging(questions, logger: Logger) -> List[Dict]:
     """
     문제 자동 태깅
     Args:
@@ -366,14 +381,32 @@ def auto_tagging(questions, logger: Logger) -> Dict:
 
 
 async def question_analysis(image_paths, logger):
+    """
+    이미지 경로를 입력 받으면, 해당 이미지 속 문제들의 텍스트를 추출하여 개념을 자동 태깅을 하고,
+    유사한 문제 Id를 반환하는 메서드
+
+    Args:
+        image_paths: 각 이미지들이 저장되어 있는 경로들을 담고 있는 리스트
+        logger: FastAPI Logger
+
+    Return:
+        tagging_list: 각 이미지 별 태깅된 용어 리스트와
+            "img_path": 텍스트를 추출한 대상 이미지의 경로
+            "concept_ids": 이미지 속 문제와 연관된 용어 리스트
+            "question_ids": 이미지 속 문제와 유사한 문제들의 id 리스트
+
+    """
+    # OCR 프롬프트 txt 가져오기
     async with aiofiles.open("prompts/ocr-prompt.txt", "r") as prompt_file:
         prompt = await prompt_file.read()
+    # OCR 진행
     start_time = asyncio.get_event_loop().time()
-    question_list = await process_images_in_parallel(image_paths, prompt, logger)
+    question_list = await ocr_multiple_images(image_paths, prompt, logger)
     question_list = [question for question in question_list if isinstance(question, Question)]
     finished_time = asyncio.get_event_loop().time() - start_time
+    # OCR 완료 후 결과 반환
     logger.info(f"{question_list}")
     logger.info(f"Question text extraction took {finished_time} seconds")
-
+    # 자동 태깅 시작
     tagging_list = auto_tagging(question_list, logger)
     return tagging_list
