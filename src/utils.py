@@ -9,7 +9,7 @@ from time import time
 from typing import Dict, List
 from logging import Logger
 from template.question_format import Question
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI, AsyncOpenAI, OpenAIError
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
 from langchain_experimental.open_clip import OpenCLIPEmbeddings
@@ -129,36 +129,48 @@ async def process_images_in_parallel(image_paths: List[str], prompt, logger: Log
     return questions
 
 
-# question_text, 문제 텍스트 쿼리
-def query_text(query_text, n_results=3, logger: Logger = None):
+async def query_text(questions: List[Question], vectordb, n_results, logger):
+    """문제 텍스트 기반 유사도 검색"""
     try:
-        # OpenAI embeddings 초기화
-        embeddings = OpenAIEmbeddings()
-        if logger:
-            logger.info("텍스트 임베딩 초기화 완료")
-
-        # ChromaDB에 연결
-        vectordb = Chroma(
-            persist_directory="./chroma_db",
-            collection_name="text_problems",
-            embedding_function=embeddings
-        )
-        if logger:
-            logger.info("ChromaDB 연결 완료")
-
-        # 유사도 검색 실행
-        results = vectordb.similarity_search(query_text, k=n_results)
-        if logger:
-            logger.info(f"텍스트 유사도 검색 완료: {len(results)}개 결과 찾음")
-
-        # Document 객체들의 id만 추출하여 리스트로 변환
-        doc_ids = [doc.metadata['id'] for doc in results]
-        result = list(set(doc_ids))
-
-        return result
+        logger.info("유사도 검색 시작")
+        
+        # 단일 문제인 경우 리스트로 변환
+        if not isinstance(questions, list):
+            questions = [questions]
+            logger.debug("단일 문제를 리스트로 변환")
+        
+        # 모든 문제에 대해 동시에 검색 실행
+        logger.info(f"총 {len(questions)}개 문제에 대한 검색 시작")
+        search_tasks = [
+            vectordb.asimilarity_search_with_relevance_scores(
+                q.question_text if isinstance(q, Question) else q,
+                k=n_results
+            ) for q in questions
+        ]
+        search_results = await asyncio.gather(*search_tasks)
+        logger.info("모든 문제 검색 완료")
+        
+        results = []
+        
+        for i, search_result in enumerate(search_results):
+            # Document 객체들의 id와 유사도 점수 추출
+            doc_ids = [doc.metadata['id'] for doc, score in search_result]
+            scores = [score for doc, score in search_result]
+            
+            # 유사도 점수가 0.009 이상인 것만 필터링
+            filtered = [(id, score) for id, score in zip(doc_ids, scores) if score > 0.009]
+            logger.debug(f"문제 {i+1}: 필터링 후 {len(filtered)}개 결과")
+            
+            results.append({
+                'ids': [id for id, _ in filtered],
+                'scores': [score for _, score in filtered]
+            })
+        
+        logger.info("유사도 검색 결과 처리 완료")
+        return results
+        
     except Exception as e:
-        if logger:
-            logger.error(f"텍스트 쿼리 중 오류 발생: {str(e)}")
+        logger.error(f"유사도 검색 중 오류 발생: {str(e)}")
         raise
 
 
@@ -227,29 +239,59 @@ def format_docs_to_json(docs):
                 data.append(info)
     return data
 
-
-def extract_tags(tagging):
-    # 모든 'w'로 시작하는 태그를 추출
+async def extract_tags(tagging):
+    """
+    Document 객체 또는 Document 객체 리스트에서 'w'로 시작하는 태그를 추출
+    
+    Args:
+        tagging: Document 객체 또는 {index: [Document]} 형태의 딕셔너리
+        
+    Returns:
+        list: 추출된 태그 리스트
+    """
     tags = []
-    sections = tagging.split('개념:')
-
-    for section in sections:
-        if '(w' in section:
-            # 각 줄에서 태그 추출
-            for line in section.split('\n'):
-                if '(w' in line:
-                    tag_start = line.find('(w')
-                    tag_end = line.find(')', tag_start)
+    
+    # 딕셔너리 형태로 입력된 경우
+    if isinstance(tagging, dict):
+        for docs_list in tagging.values():
+            for doc in docs_list:
+                if hasattr(doc, 'page_content'):
+                    content = doc.page_content
+                    if content.startswith('개념:'):
+                        tag_start = content.find('(w')
+                        if tag_start != -1:
+                            tag_end = content.find(')', tag_start)
+                            if tag_end != -1:
+                                tag = content[tag_start+1:tag_end]
+                                if tag.startswith('w'):
+                                    tags.append(tag)
+    
+    # Document 객체 리스트인 경우
+    elif isinstance(tagging, list) and all(hasattr(item, 'page_content') for item in tagging):
+        for doc in tagging:
+            content = doc.page_content
+            if content.startswith('개념:'):
+                tag_start = content.find('(w')
+                if tag_start != -1:
+                    tag_end = content.find(')', tag_start)
                     if tag_end != -1:
-                        tag = line[tag_start + 1:tag_end]
+                        tag = content[tag_start+1:tag_end]
                         if tag.startswith('w'):
                             tags.append(tag)
+    return tags
 
-    # 중복 제거 및 정렬
-    return sorted(list(set(tags)))
+def get_text_vectordb(collection_name):
+    embeddings = OpenAIEmbeddings()
+    
+    vectordb = Chroma(
+        persist_directory="./chroma_db",
+        collection_name=collection_name, 
+        embedding_function=embeddings
+    )
+    
+    return vectordb
 
-
-def concept_explanation_response(message, logger: Logger = None):
+async def extract_keywords(message, logger: Logger):
     try:
         if logger:
             logger.info("개념 설명 응답 시작")
@@ -260,110 +302,162 @@ def concept_explanation_response(message, logger: Logger = None):
 
         with open("prompts/concept_explanation.txt", 'r') as prompt_file:
             keyword_prompt = prompt_file.read()
+        
+        async def process_message(msg):
+            # Question 객체에서 텍스트 추출 또는 문자열 그대로 사용
+            content = str(msg.question_text if isinstance(msg, Question) else msg)
+            
+            messages = [
+                SystemMessage(content=keyword_prompt),
+                HumanMessage(content=content)
+            ]
+            
+            response = await llm.ainvoke(messages)
+            return response.content
 
-        keyword_messages = [
-            SystemMessage(content=keyword_prompt),
-            HumanMessage(content=message)
-        ]
-
-        embeddings = OpenAIEmbeddings()
-        vectordb = Chroma(persist_directory="./chroma_db",
-                          collection_name="langchain",
-                          embedding_function=embeddings)
-
-        all_relevant_docs = []
-        first_relevant_docs = []
-
-        # 키워드 추출
-        keywords = llm.invoke(keyword_messages).content
-        if logger:
-            logger.info(f"키워드 추출 완료: {keywords}")
-
-        # 문제 자체로 검색
-        problem_docs = vectordb.similarity_search(message, k=3)
-        if logger:
-            logger.info(f"문제 관련 문서 검색 완료: {len(problem_docs)}개")
-        all_relevant_docs = problem_docs[1:]
-        first_relevant_docs = [problem_docs[0]]
-
-        # 키워드 추출 후 개별 검색
-        if isinstance(keywords, str):
-            keywords_list = keywords.split(',')
-
-            # 각 키워드별로 개별 검색 수행
-            for keyword in keywords_list:
-                docs = vectordb.similarity_search(keyword.strip(), k=3)
-                all_relevant_docs.extend(docs[1:])
-                first_relevant_docs.extend([docs[0]])
-
-            # 모든 문서 합치기
-            all_docs = first_relevant_docs + all_relevant_docs
-
-            # 중복 제거
-            unique_docs = list({doc.page_content: doc for doc in all_docs}.values())
-            # 상위 5개로 제한
-            context = format_docs(unique_docs)
-
-            if logger:
-                logger.info(f"총 {len(unique_docs)}개의 관련 문서 찾음")
-
-            return context
+        # 리스트 또는 단일 메시지 처리
+        if isinstance(message, list):
+            responses = await asyncio.gather(*[
+                process_message(msg) for msg in message
+            ])
+            keywords = [resp for resp in responses]
         else:
-            raise ValueError("Keywords extraction failed")
-
+            response = await process_message(message)
+            keywords = [response]
+        
+        if logger:
+            logger.info(f"추출된 키워드: {keywords}")
+        
+        return [key.split(', ') for key in keywords]
+    
     except Exception as e:
-        if logger:
-            logger.error(f"개념 설명 응답 중 오류 발생: {str(e)}")
-        if "API" in str(e):
+        logger.error(f"개념 설명 생성 중 오류 발생: {str(e)}")
+        
+        if isinstance(e, OpenAIError):
             return "API 연결에 문제가 발생했습니다. 잠시 후 다시 시도해주세요."
-        elif "embedding" in str(e).lower():
-            return "벡터 데이터베이스 검색 중 오류가 발생했습니다."
-        else:
-            return f"예상치 못한 오류가 발생했습니다: {str(e)}"
+        return f"예상치 못한 오류가 발생했습니다: {str(e)}"
+   
+def distribute_docs(tagging, keywords, num, tag_search_k):
+    
+    # 문제별 문서 리스트를 담을 Dict 초기화
+    question_docs = {i: [] for i in range(num)}
+    current_idx = num  # 시작 인덱스
+    
+    # 상위 num개 문서를 문제별로 우선 할당
+    for i in range(num):
+        if i < len(tagging):
+            question_docs[i] = [tagging[i]]
+    
+    # 문제별로 키워드 기반 문서 할당
+    for i in range(num):
+        if i < len(keywords):
+            # 현재 문제의 키워드에 대한 문서 수 계산
+            tag_length = len(keywords[i]) * tag_search_k + tag_search_k
+            end_idx = current_idx + tag_length
+            
+            # 인덱스 범위 체크
+            if end_idx <= len(tagging):
+                question_docs[i].extend(tagging[current_idx:end_idx])
+            
+            current_idx = end_idx
+            
+    return question_docs
+    
+async def search_with_tags(tagging, questions, vectordb, tag_search_k, logger):
+    """태그와 문제 텍스트 기반 문서 검색 함수"""
+    try:
+        logger.info("태그 기반 문서 검색 시작")
+        all_docs = []
+        search_tasks = []
+        
+        # 1. 문제 텍스트 기반 검색 태스크 추가
+        logger.debug(f"문제 텍스트 기반 검색 태스크 생성 중: {len(questions)}개 문제")
+        for question in questions:
+            question_text = question.question_text if hasattr(question, 'question_text') else question
+            search_tasks.append(vectordb.asimilarity_search(question_text, k=1))
 
-
-def auto_tagging(questions, logger: Logger) -> Dict:
+        # 2. 태그 기반 검색 태스크 추가 
+        logger.debug(f"태그 기반 검색 태스크 생성 중: {len(tagging)}개 태그 세트")
+        for tag_set in tagging:
+            # 태그 세트가 리스트인 경우 문자열로 변환
+            if isinstance(tag_set, list):
+                tag_set = ', '.join(tag_set)
+                
+            # 태그 세트 전체 검색 - k값 증가
+            search_tasks.append(vectordb.asimilarity_search(tag_set, k=tag_search_k))
+            
+            # 개별 키워드 검색
+            keywords = [kw.strip() for kw in tag_set.split(',')]
+            for keyword in keywords:
+                search_tasks.append(vectordb.asimilarity_search(keyword, k=tag_search_k))
+    
+        # 모든 검색 태스크 동시 실행 
+        logger.info(f"총 {len(search_tasks)}개의 검색 태스크 실행")
+        search_results = await asyncio.gather(*search_tasks)
+        
+        # 검색 결과 처리
+        for docs in search_results:
+            all_docs.extend(docs)
+            
+        if logger:
+            logger.info(f"총 {len(all_docs)}개의 고유 문서 검색됨")
+            
+        return all_docs
+        
+    except Exception as e:
+        logger.error(f"문서 검색 중 오류 발생: {str(e)}")
+        return []
+    
+async def auto_tagging(questions: List[Question], logger) -> List[Dict]:
     """
-    문제 자동 태깅
+    문제 자동 태깅 함수
+    
     Args:
-        question(Question): 태깅 대상인 문제
-        logger(Logger): 로깅을 위한 Logger 객체
-
-    Input data:
-        question_text: 문제 텍스트
-        graph_or_chart: 그래프, 차트 해석
+        questions (List[Question]): 태깅할 문제 리스트
+        logger: 로깅을 위한 Logger 객체
         
     Returns:
-        List[Dict]: 각 문제별 태깅 결과 리스트
+        List[Dict]: 각 문제별 태깅 결과 리스트. 
+                   각 딕셔너리는 img_path, concept_ids, question_ids를 포함
     """
+    
+    try:
+        logger.info("자동 태깅 프로세스 시작")
+        tag_search_k = 1
+        num = len(questions)
 
-    results = []
+        # 벡터 DB 초기화
+        logger.info("벡터 DB 초기화")
+        vectordb = get_text_vectordb("text_problems")
+        vectordb_RAG = get_text_vectordb("langchain")
 
-    for i, question in enumerate(questions):
-        question_result = {
-            # "id": i + 1,
-            "img_path": question.image_path,
-            "concept_ids": [],
-            "question_ids": []
-        }
+        # 비동기 작업 실행
+        logger.info("비동기 작업 실행 시작")
+        question_id = await query_text(questions, vectordb=vectordb, n_results=3, logger=logger)
+        tagging = await extract_keywords(questions, logger=logger)
+        tagging_docs = await search_with_tags(tagging, questions, vectordb=vectordb_RAG, tag_search_k=tag_search_k, logger=logger)
+        concepts = await extract_tags(tagging_docs)
+        concept_id = distribute_docs(concepts, tagging, num, tag_search_k)
 
-        # question_ids 업데이트 - logger 전달
-        question_result["question_ids"].extend(query_text(question.question_text, logger=logger))
-        # if question.graph_or_chart:  # None이 아닐 때만 실행
-        #     question_result["question_ids"].extend(query_image(question.graph_or_chart, logger=logger))
+        # 결과 조합
+        logger.info("결과 조합 시작")
+        results = []
+        for i, q in enumerate(questions):
+            question_result = {
+                "img_path": q.image_path,
+                "concept_ids": [],
+                "question_ids": []
+            }
+            question_result["question_ids"].extend(question_id[i]["ids"])
+            question_result["concept_ids"].extend(concept_id[i])
+            results.append(question_result)
 
-        # concept_ids 업데이트 - logger 전달
-        tagging = concept_explanation_response(question.question_text, logger=logger)
-        question_result["concept_ids"].extend(extract_tags(tagging))
+        logger.info(f"자동 태깅 완료: {len(results)}개 문제 처리됨")
+        return results
 
-        # 중복 제거
-        question_result["concept_ids"] = list(set(question_result["concept_ids"]))
-        question_result["question_ids"] = list(set(question_result["question_ids"]))
-
-        results.append(question_result)
-
-    return results
-
+    except Exception as e:
+        logger.error(f"자동 태깅 중 오류 발생: {str(e)}")
+        return []
 
 async def question_analysis(image_paths, logger):
     async with aiofiles.open("prompts/ocr-prompt.txt", "r") as prompt_file:
@@ -375,5 +469,8 @@ async def question_analysis(image_paths, logger):
     logger.info(f"{question_list}")
     logger.info(f"Question text extraction took {finished_time} seconds")
 
-    tagging_list = auto_tagging(question_list, logger)
+    start_time = asyncio.get_event_loop().time()
+    tagging_list = await auto_tagging(question_list, logger)
+    finished_time = asyncio.get_event_loop().time() - start_time
+    logger.info(f"Auto-tagging took {finished_time} seconds")
     return tagging_list
